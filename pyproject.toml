@@ -4,7 +4,7 @@ version = "0.0.1dev"
 description = ""
 authors = ["C4AI"]
 readme = "README.md"
-packages = [{include = "blab_chatbot_haystack"}]
+#packages = [{include = "blab_chatbot_haystack"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -21,7 +21,14 @@ python-lsp-server = "^1.5.0"
 pyupgrade = "^2.37.3"
 mypy = "^0.971"
 pre-commit = "^2.20.0"
+black = {extras = ["d"], version = "^22.8.0"}
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = "haystack.*"
+ignore_missing_imports = true
