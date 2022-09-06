@@ -3,7 +3,7 @@
 from typing import Any
 
 from haystack.pipelines.base import Pipeline
-from haystack.pipelines import ExtractiveQAPipeline, BaseStandardPipeline
+from haystack.pipelines import ExtractiveQAPipeline
 from haystack.schema import Document, Answer
 from haystack.document_stores import ElasticsearchDocumentStore, KeywordDocumentStore
 from haystack.nodes import (
@@ -11,7 +11,6 @@ from haystack.nodes import (
     BM25Retriever,
     FARMReader,
     BaseRetriever,
-    BaseReader,
 )
 from haystack.utils import convert_files_to_docs
 
@@ -33,8 +32,11 @@ class HaystackBot:
         conversion_args: dict[str, Any] | None = None,
         pre_processor_args: dict[str, Any] | None = None,
         es_args: dict[str, Any] | None = None,
-        retriever_params: dict[str, Any] | None = None,
-        reader_params: dict[str, Any] | None = None,
+        retriever_args: dict[str, Any] | None = None,
+        reader_args: dict[str, Any] | None = None,
+        reader_train_args: dict[str, Any] | None = None,
+        pipeline_retriever_args: dict[str, Any] | None = None,
+        pipeline_reader_args: dict[str, Any] | None = None,
     ):
         self.doc_dir = doc_dir
         self.model_dir = model_dir
@@ -43,10 +45,13 @@ class HaystackBot:
         self.conversion_args: dict[str, Any] = conversion_args or {}
         self.pre_processor_args: dict[str, Any] = pre_processor_args or {}
         self.es_args: dict[str, Any] = es_args or {}
+        self.retriever_args: dict[str, Any] = retriever_args or {}
+        self.reader_args: dict[str, Any] = reader_args or {}
+        self.reader_train_args: dict[str, Any] = reader_train_args or {}
         self.retriever: BaseRetriever | None = None
-        self.reader: BaseReader | None = None
-        self.retriever_params: dict[str, Any] = retriever_params or {}
-        self.reader_params: dict[str, Any] = reader_params or {}
+        self.reader: FARMReader | None = None
+        self.pipeline_retriever_args: dict[str, Any] = pipeline_retriever_args or {}
+        self.pipeline_reader_args: dict[str, Any] = pipeline_reader_args or {}
         self.pipeline: Pipeline | None = None
 
     def connect_to_elastic_search(self):
@@ -60,19 +65,30 @@ class HaystackBot:
         self.docs = pre_processor.process(self.docs)
 
     def create_retriever(self):
-        self.retriever = BM25Retriever(document_store=self.doc_store)
+        self.retriever = BM25Retriever(
+            **(dict(document_store=self.doc_store) | self.retriever_args)
+        )
 
     def create_reader(self):
-        self.reader = FARMReader(model_name_or_path=self.model_dir)
+        self.reader = FARMReader(
+            **(dict(model_name_or_path=self.model_dir) | self.reader_args)
+        )
+
+    def train_reader(self):
+        assert self.reader, "Create reader before running train_reader()"
+        self.reader.train(**self.reader_train_args)
 
     def create_pipeline(self):
-        assert self.reader
-        assert self.retriever
+        assert self.reader, "Create reader before running create_pipeline()"
+        assert self.retriever, "Create reader before running create_retriever()"
         self.pipeline = ExtractiveQAPipeline(self.reader, self.retriever).pipeline
 
     def answer(self, query: str) -> Answer:
-        assert self.pipeline
+        assert self.pipeline, "Create pipeline before running answer()"
         return self.pipeline.run(
             query=query,
-            params={"Retriever": self.retriever_params, "Reader": self.reader_params},
+            params={
+                "Retriever": self.pipeline_retriever_args,
+                "Reader": self.pipeline_reader_args,
+            },
         )
