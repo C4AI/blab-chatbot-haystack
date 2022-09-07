@@ -11,6 +11,8 @@ from haystack.pipelines.base import Pipeline
 from haystack.schema import Answer, Document
 from haystack.utils import convert_files_to_docs
 
+from blab_chatbot_haystack import make_path_absolute
+
 logging.basicConfig(
     format="%(levelname)s - %(name)s -  %(message)s", level=logging.WARNING
 )
@@ -33,8 +35,8 @@ class HaystackBot:
         pipeline_retriever_args: dict[str, Any] | None = None,
         pipeline_reader_args: dict[str, Any] | None = None,
     ):
-        self.doc_dir = doc_dir
-        self.model_dir = model_dir
+        self.doc_dir = make_path_absolute(doc_dir)
+        self.model_dir = make_path_absolute(model_dir)
         self.docs: list[Document] = []
         self.doc_store: KeywordDocumentStore | None = None
         self.conversion_args: dict[str, Any] = conversion_args or {}
@@ -85,12 +87,13 @@ class HaystackBot:
         if not self.pipeline:
             self.create_pipeline()
         assert self.pipeline
+        params = {
+            "Retriever": self.pipeline_retriever_args,
+            "Reader": self.pipeline_reader_args,
+        }
         return self.pipeline.run(
             query=query,
-            params={
-                "Retriever": self.pipeline_retriever_args,
-                "Reader": self.pipeline_reader_args,
-            },
+            params={k: v for k, v in params.items() if v},
         )
 
 
