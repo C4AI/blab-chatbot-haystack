@@ -55,13 +55,24 @@ class HaystackBot:
         self.doc_store = ElasticsearchDocumentStore(**self.es_args)
 
     def load_documents(self) -> None:
-        convert_files_to_docs(self.doc_dir, **self.conversion_args)
+        self.docs = convert_files_to_docs(self.doc_dir, **self.conversion_args)
 
     def pre_process(self) -> None:
         pre_processor = PreProcessor(**self.pre_processor_args)
         self.docs = pre_processor.process(self.docs)
 
+    def index_documents(self) -> None:
+        if not self.doc_store:
+            self.connect_to_elastic_search()
+        assert self.doc_store
+        if not self.docs:
+            self.load_documents()
+            self.pre_process()
+        self.doc_store.write_documents(self.docs)
+
     def create_retriever(self) -> None:
+        if not self.doc_store:
+            self.connect_to_elastic_search()
         self.retriever = BM25Retriever(
             **(dict(document_store=self.doc_store, **self.retriever_args))
         )

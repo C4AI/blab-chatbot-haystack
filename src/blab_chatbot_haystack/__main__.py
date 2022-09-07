@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from blab_chatbot_haystack import make_path_absolute
+from blab_chatbot_haystack.haystack_bot import HaystackBot
 
 # from blab_chatbot_haystack.server import start_server
 
@@ -17,6 +18,7 @@ def create_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="settings.py")
     subparsers = parser.add_subparsers(help="command", dest="command")
     subparsers.add_parser("startserver", help="start server")
+    subparsers.add_parser("index", help="index documents")
     subparsers.add_parser("answer", help="answer question typed on terminal")
     return parser
 
@@ -37,10 +39,12 @@ parser = create_arg_parser()
 args = parser.parse_args()
 config = load_config(args.config)
 
-if args.command == "answer":
-    from blab_chatbot_haystack.haystack_bot import HaystackBot
+bot = HaystackBot(**{k.lower(): v for k, v in config.items()})
 
-    bot = HaystackBot(**{k.lower(): v for k, v in config.items()})
+if args.command == "index":
+    bot.index_documents()
+elif args.command == "answer":
+
     print("TYPE YOUR QUESTION AND PRESS ENTER.")
     while True:
         try:
