@@ -1,20 +1,15 @@
 """Haystack bot for BLAB."""
-
-from typing import Any
-
-from haystack.pipelines.base import Pipeline
-from haystack.pipelines import ExtractiveQAPipeline
-from haystack.schema import Document, Answer
-from haystack.document_stores import ElasticsearchDocumentStore, KeywordDocumentStore
-from haystack.nodes import (
-    PreProcessor,
-    BM25Retriever,
-    FARMReader,
-    BaseRetriever,
-)
-from haystack.utils import convert_files_to_docs
+from __future__ import annotations
 
 import logging
+from typing import Any
+
+from haystack.document_stores import ElasticsearchDocumentStore, KeywordDocumentStore
+from haystack.nodes import BaseRetriever, BM25Retriever, PreProcessor, Seq2SeqGenerator
+from haystack.pipelines import GenerativeQAPipeline
+from haystack.pipelines.base import Pipeline
+from haystack.schema import Answer, Document
+from haystack.utils import convert_files_to_docs
 
 logging.basicConfig(
     format="%(levelname)s - %(name)s -  %(message)s", level=logging.WARNING
@@ -23,7 +18,7 @@ logging.getLogger("haystack").setLevel(logging.INFO)
 
 
 class HaystackBot:
-    """A bot that uses Haystack"""
+    """A bot that uses Haystack."""
 
     def __init__(
         self,
@@ -49,42 +44,47 @@ class HaystackBot:
         self.reader_args: dict[str, Any] = reader_args or {}
         self.reader_train_args: dict[str, Any] = reader_train_args or {}
         self.retriever: BaseRetriever | None = None
-        self.reader: FARMReader | None = None
+        self.reader: Seq2SeqGenerator | None = None
         self.pipeline_retriever_args: dict[str, Any] = pipeline_retriever_args or {}
         self.pipeline_reader_args: dict[str, Any] = pipeline_reader_args or {}
         self.pipeline: Pipeline | None = None
 
-    def connect_to_elastic_search(self):
+    def connect_to_elastic_search(self) -> None:
         self.doc_store = ElasticsearchDocumentStore(**self.es_args)
 
-    def load_documents(self):
+    def load_documents(self) -> None:
         convert_files_to_docs(self.doc_dir, **self.conversion_args)
 
-    def pre_process(self):
+    def pre_process(self) -> None:
         pre_processor = PreProcessor(**self.pre_processor_args)
         self.docs = pre_processor.process(self.docs)
 
-    def create_retriever(self):
+    def create_retriever(self) -> None:
         self.retriever = BM25Retriever(
-            **(dict(document_store=self.doc_store) | self.retriever_args)
+            **(dict(document_store=self.doc_store, **self.retriever_args))
         )
 
-    def create_reader(self):
-        self.reader = FARMReader(
-            **(dict(model_name_or_path=self.model_dir) | self.reader_args)
+    def create_reader(self) -> None:
+        self.reader = Seq2SeqGenerator(
+            **(dict(model_name_or_path=self.model_dir, **self.reader_args))
         )
 
-    def train_reader(self):
+    def train_reader(self) -> None:
         assert self.reader, "Create reader before running train_reader()"
-        self.reader.train(**self.reader_train_args)
+        raise NotImplementedError
+        # self.reader.train(**self.reader_train_args)
 
-    def create_pipeline(self):
-        assert self.reader, "Create reader before running create_pipeline()"
-        assert self.retriever, "Create reader before running create_retriever()"
-        self.pipeline = ExtractiveQAPipeline(self.reader, self.retriever).pipeline
+    def create_pipeline(self) -> None:
+        if not self.reader:
+            self.create_reader()
+        if not self.retriever:
+            self.create_retriever()
+        self.pipeline = GenerativeQAPipeline(self.reader, self.retriever).pipeline
 
     def answer(self, query: str) -> Answer:
-        assert self.pipeline, "Create pipeline before running answer()"
+        if not self.pipeline:
+            self.create_pipeline()
+        assert self.pipeline
         return self.pipeline.run(
             query=query,
             params={
@@ -92,3 +92,6 @@ class HaystackBot:
                 "Reader": self.pipeline_reader_args,
             },
         )
+
+
+__all__ = ("HaystackBot",)
