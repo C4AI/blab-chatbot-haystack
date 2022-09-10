@@ -105,7 +105,7 @@ class HaystackBot:
         return self.pipeline.run(
             query=query,
             params={k: v for k, v in params.items() if v},
-        )
+        ).get('answers', [])
 
 
 __all__ = ("HaystackBot",)

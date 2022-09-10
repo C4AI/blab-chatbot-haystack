@@ -54,7 +54,7 @@ elif args.command == "answer":
         if not question:
             break
         for answer in bot.answer(question) or []:
-            print(">> HAYSTACK: " + answer)
+            print(">> HAYSTACK: " + str(answer))
 
 elif args.command == "startserver":
     # bot = HaystackBot()
