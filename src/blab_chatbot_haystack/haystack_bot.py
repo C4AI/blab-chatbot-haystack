@@ -30,10 +30,10 @@ class HaystackBot:
         pre_processor_args: dict[str, Any] | None = None,
         es_args: dict[str, Any] | None = None,
         retriever_args: dict[str, Any] | None = None,
-        reader_args: dict[str, Any] | None = None,
-        reader_train_args: dict[str, Any] | None = None,
+        generator_args: dict[str, Any] | None = None,
+        generator_train_args: dict[str, Any] | None = None,
         pipeline_retriever_args: dict[str, Any] | None = None,
-        pipeline_reader_args: dict[str, Any] | None = None,
+        pipeline_generator_args: dict[str, Any] | None = None,
     ):
         self.doc_dir = make_path_absolute(doc_dir)
         self.model_dir = make_path_absolute(model_dir)
@@ -43,12 +43,12 @@ class HaystackBot:
         self.pre_processor_args: dict[str, Any] = pre_processor_args or {}
         self.es_args: dict[str, Any] = es_args or {}
         self.retriever_args: dict[str, Any] = retriever_args or {}
-        self.reader_args: dict[str, Any] = reader_args or {}
-        self.reader_train_args: dict[str, Any] = reader_train_args or {}
+        self.generator_args: dict[str, Any] = generator_args or {}
+        self.generator_train_args: dict[str, Any] = generator_train_args or {}
         self.retriever: BaseRetriever | None = None
-        self.reader: Seq2SeqGenerator | None = None
+        self.generator: Seq2SeqGenerator | None = None
         self.pipeline_retriever_args: dict[str, Any] = pipeline_retriever_args or {}
-        self.pipeline_reader_args: dict[str, Any] = pipeline_reader_args or {}
+        self.pipeline_generator_args: dict[str, Any] = pipeline_generator_args or {}
         self.pipeline: Pipeline | None = None
 
     def connect_to_elastic_search(self) -> None:
@@ -77,22 +77,22 @@ class HaystackBot:
             **(dict(document_store=self.doc_store, **self.retriever_args))
         )
 
-    def create_reader(self) -> None:
-        self.reader = Seq2SeqGenerator(
-            **(dict(model_name_or_path=self.model_dir, **self.reader_args))
+    def create_generator(self) -> None:
+        self.generator = Seq2SeqGenerator(
+            **(dict(model_name_or_path=self.model_dir, **self.generator_args))
         )
 
-    def train_reader(self) -> None:
-        assert self.reader, "Create reader before running train_reader()"
+    def train_generator(self) -> None:
+        assert self.generator, "Create generator before running train_generator()"
         raise NotImplementedError
-        # self.reader.train(**self.reader_train_args)
+        # self.generator.train(**self.generator_train_args)
 
     def create_pipeline(self) -> None:
-        if not self.reader:
-            self.create_reader()
+        if not self.generator:
+            self.create_generator()
         if not self.retriever:
             self.create_retriever()
-        self.pipeline = GenerativeQAPipeline(self.reader, self.retriever).pipeline
+        self.pipeline = GenerativeQAPipeline(self.generator, self.retriever).pipeline
 
     def answer(self, query: str) -> Answer:
         if not self.pipeline:
@@ -100,12 +100,12 @@ class HaystackBot:
         assert self.pipeline
         params = {
             "Retriever": self.pipeline_retriever_args,
-            "Reader": self.pipeline_reader_args,
+            "Generator": self.pipeline_generator_args,
         }
         return self.pipeline.run(
             query=query,
             params={k: v for k, v in params.items() if v},
-        ).get('answers', [])
+        ).get("answers", [])
 
 
 __all__ = ("HaystackBot",)
