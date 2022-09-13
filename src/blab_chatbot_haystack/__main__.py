@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import argparse
+from colorama import Style
+from colorama import init as init_colorama
+
 from importlib import util as import_util
 from pathlib import Path
 from typing import Any
 
 from blab_chatbot_haystack import make_path_absolute
 from blab_chatbot_haystack.haystack_bot import HaystackBot
-
-# from blab_chatbot_haystack.server import start_server
+from blab_chatbot_haystack.server import start_server
 
 
 def create_arg_parser() -> argparse.ArgumentParser:
@@ -23,45 +25,45 @@ def create_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def load_config(p: str) -> dict[str, Any]:
+def load_config(p: str) -> tuple[dict[str, Any], dict[str, Any]]:
     cfg_path = make_path_absolute(p)
     spec = import_util.spec_from_file_location(Path(cfg_path).name[:-3], cfg_path)
     assert spec
     assert spec.loader
     settings_module = import_util.module_from_spec(spec)
     spec.loader.exec_module(settings_module)
-    if isinstance(settings_module.HAYSTACK_SETTINGS, dict):
-        return settings_module.HAYSTACK_SETTINGS
+    haystack_cfg = getattr(settings_module, "HAYSTACK_SETTINGS", None)
+    server_cfg = getattr(settings_module, "SERVER_SETTINGS", None)
+    if isinstance(haystack_cfg, dict) and isinstance(server_cfg, dict):
+        return server_cfg, haystack_cfg
     raise ValueError("Invalid settings file")
 
 
 parser = create_arg_parser()
 args = parser.parse_args()
-config = load_config(args.config)
+server_config, haystack_config = load_config(args.config)
 
-bot = HaystackBot(**{k.lower(): v for k, v in config.items()})
+bot = HaystackBot(**{k.lower(): v for k, v in haystack_config.items()})
 
 if args.command == "index":
     bot.index_documents()
 elif args.command == "answer":
+    init_colorama()
 
     print("TYPE YOUR QUESTION AND PRESS ENTER.")
     while True:
         try:
-            question = input(">> YOU: ")
+            question = input(f"{Style.BRIGHT}\n>> YOU: {Style.RESET_ALL}")
         except (EOFError, KeyboardInterrupt):
             question = ""
         if not question:
             break
-        for answer in bot.answer(question) or []:
-            print(">> HAYSTACK: " + str(answer))
+        for a in bot.answer(question) or []:
+            print(
+                f"{Style.BRIGHT}\n>> HAYSTACK {Style.RESET_ALL}"
+                + f"{Style.DIM}(score={a.score}, context={a.context}){Style.BRIGHT}: {Style.RESET_ALL}"
+                + a.answer
+            )
 
 elif args.command == "startserver":
-    # bot = HaystackBot()
-    # start_server(
-    #     host=config["server_host"],
-    #     port=config.getint("server_port"),
-    #     bot=bot,
-    #     ws_url=config["ws_url"],
-    # )
-    pass
+    start_server(bot=bot, **{k.lower(): v for k, v in server_config.items()})

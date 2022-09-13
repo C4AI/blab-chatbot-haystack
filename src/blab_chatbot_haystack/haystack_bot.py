@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast, List
 
 from haystack.document_stores import ElasticsearchDocumentStore, KeywordDocumentStore
 from haystack.nodes import BaseRetriever, BM25Retriever, PreProcessor, Seq2SeqGenerator
@@ -16,7 +16,7 @@ from blab_chatbot_haystack import make_path_absolute
 logging.basicConfig(
     format="%(levelname)s - %(name)s -  %(message)s", level=logging.WARNING
 )
-logging.getLogger("haystack").setLevel(logging.INFO)
+logging.getLogger("haystack").setLevel(logging.WARNING)
 
 
 class HaystackBot:
@@ -94,7 +94,7 @@ class HaystackBot:
             self.create_retriever()
         self.pipeline = GenerativeQAPipeline(self.generator, self.retriever).pipeline
 
-    def answer(self, query: str) -> Answer:
+    def answer(self, query: str) -> list[Answer]:
         if not self.pipeline:
             self.create_pipeline()
         assert self.pipeline
@@ -102,10 +102,14 @@ class HaystackBot:
             "Retriever": self.pipeline_retriever_args,
             "Generator": self.pipeline_generator_args,
         }
-        return self.pipeline.run(
-            query=query,
-            params={k: v for k, v in params.items() if v},
-        ).get("answers", [])
+
+        return cast(
+            List[Answer],
+            self.pipeline.run(
+                query=query,
+                params={k: v for k, v in params.items() if v},
+            ).get("answers", []),
+        )
 
 
 __all__ = ("HaystackBot",)

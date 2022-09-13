@@ -10,6 +10,7 @@ readme = "README.md"
 python = "^3.8"
 farm-haystack = "^1.8.0"
 Flask = "^2.2.2"
+colorama = "^0.4.5"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^5.0.4"
