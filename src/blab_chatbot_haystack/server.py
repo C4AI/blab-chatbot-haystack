@@ -49,18 +49,20 @@ def conversation_start() -> None:
             if not message.get("type", None) == MessageType.TEXT:
                 answers = ["O Haystack entende apenas mensagens de texto."]
             else:
-                answers = bot.answer(message["text"]) or []
+                answers = list(
+                    map(lambda a: a.answer, bot.answer(message["text"]) or [])
+                )
             for i, answer in enumerate(answers):
                 msg_type = "T"
                 local_id = str(uuid.uuid4()).replace("-", "")
-                answer = {
+                ans = {
                     "type": msg_type,
                     "text": answer,
                     "local_id": local_id,
                     "quoted_message_id": message["id"] if i == 0 else None,
                 }
                 # send answer
-                Thread(target=lambda: ws_app.send(json.dumps(answer))).start()
+                Thread(target=lambda: ws_app.send(json.dumps(ans))).start()
 
     def on_open(ws_app: WebSocketApp) -> None:
         """Send a greeting message.
