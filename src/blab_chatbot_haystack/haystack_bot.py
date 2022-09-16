@@ -19,6 +19,25 @@ logging.basicConfig(
 logging.getLogger("haystack").setLevel(logging.WARNING)
 
 
+class CustomInputConverter:  # adapted from _BartEli5Converter
+    def __call__(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        query: str,
+        documents: List[Document],
+        top_k: int | None = None,
+    ) -> BatchEncoding:
+        conditioned_doc = "<P> " + " <P> ".join([d.content for d in documents])
+        query_and_docs = f"question: {query} context: {conditioned_doc}"
+        enc: BatchEncoding = tokenizer(
+            query_and_docs,
+            truncation=True,
+            padding=True,
+            return_tensors="pt",
+        )
+        return enc
+
+
 class HaystackBot:
     """A bot that uses Haystack."""
 
@@ -79,7 +98,13 @@ class HaystackBot:
 
     def create_generator(self) -> None:
         self.generator = Seq2SeqGenerator(
-            **(dict(model_name_or_path=self.model_dir, **self.generator_args))
+            **(
+                dict(
+                    model_name_or_path=self.model_dir,
+                    input_converter=CustomInputConverter(),
+                    **self.generator_args,
+                )
+            ),
         )
 
     def train_generator(self) -> None:
