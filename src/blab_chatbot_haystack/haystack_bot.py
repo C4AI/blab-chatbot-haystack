@@ -1,8 +1,11 @@
 """Haystack bot for BLAB."""
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, cast, List
+
+from datasets import DatasetDict, Dataset
 
 from haystack.document_stores import ElasticsearchDocumentStore, KeywordDocumentStore
 from haystack.nodes import BaseRetriever, BM25Retriever, PreProcessor, Seq2SeqGenerator
@@ -10,6 +13,13 @@ from haystack.pipelines import GenerativeQAPipeline
 from haystack.pipelines.base import Pipeline
 from haystack.schema import Answer, Document
 from haystack.utils import convert_files_to_docs
+from transformers import (
+    BatchEncoding,
+    PreTrainedTokenizer,
+    Seq2SeqTrainingArguments,
+    Seq2SeqTrainer,
+    DataCollatorForSeq2Seq,
+)
 
 from blab_chatbot_haystack import make_path_absolute
 
@@ -45,16 +55,51 @@ class HaystackBot:
         self,
         doc_dir: str,
         model_dir: str,
+        output_model_dir: str | None = None,
         conversion_args: dict[str, Any] | None = None,
         pre_processor_args: dict[str, Any] | None = None,
         es_args: dict[str, Any] | None = None,
         retriever_args: dict[str, Any] | None = None,
         generator_args: dict[str, Any] | None = None,
         generator_train_args: dict[str, Any] | None = None,
+        training_qa_file_name: str | None = None,
         pipeline_retriever_args: dict[str, Any] | None = None,
         pipeline_generator_args: dict[str, Any] | None = None,
     ):
+        """.
+
+        Args:
+            doc_dir: the directory that contains the documents
+                (full path or relative to project root)
+            model_dir: the directory that contains the model
+                (full path or relative to project root)
+            output_model_dir: the directory that will contain
+                the model after training
+                (full path or relative to project root)
+                - required only when the model will be trained,
+                in which case the argument "model_dir"
+                represents the directory containing the
+                initial model
+            conversion_args: arguments to be passed to
+                `convert_files_to_docs` (except for the document path,
+                which is included automatically)
+            pre_processor_args: arguments to be passed to `PreProcessor`
+                constructor
+            es_args: arguments to be passed to `ElasticsearchDocumentStore`
+                constructor
+            retriever_args: arguments to be passed to the retriever constructor
+            generator_args: arguments to be passed to the generator constructor
+            generator_train_args: # TODO
+            training_qa_file_name: # TODO
+            pipeline_retriever_args: arguments to be passed to the retriever
+                in the pipeline (to request an answer)
+            pipeline_generator_args: arguments to be passed to the generator
+                in the pipeline (to request an answer)
+        """
         self.doc_dir = make_path_absolute(doc_dir)
+        self.output_model_dir = (
+            make_path_absolute(output_model_dir) if output_model_dir else None
+        )
         self.model_dir = make_path_absolute(model_dir)
         self.docs: list[Document] = []
         self.doc_store: KeywordDocumentStore | None = None
@@ -64,10 +109,13 @@ class HaystackBot:
         self.retriever_args: dict[str, Any] = retriever_args or {}
         self.generator_args: dict[str, Any] = generator_args or {}
         self.generator_train_args: dict[str, Any] = generator_train_args or {}
-        self.retriever: BaseRetriever | None = None
-        self.generator: Seq2SeqGenerator | None = None
+        self.training_qa_file_name: str | None = (
+            make_path_absolute(training_qa_file_name) if training_qa_file_name else None
+        )
         self.pipeline_retriever_args: dict[str, Any] = pipeline_retriever_args or {}
         self.pipeline_generator_args: dict[str, Any] = pipeline_generator_args or {}
+        self.retriever: BaseRetriever | None = None
+        self.generator: Seq2SeqGenerator | None = None
         self.pipeline: Pipeline | None = None
 
     def connect_to_elastic_search(self) -> None:
@@ -107,8 +155,46 @@ class HaystackBot:
             ),
         )
 
+    def _read_qa_data(self, file_name: str) -> Dataset:
+        with open(file_name, "r", encoding="utf-8") as fd:
+            j = json.load(fd)
+        questions: list[str] = []
+        answers: list[str] = []
+        documents: list[list[str]] = []
+        for item in j["items"]:
+            questions.append(item["q"])
+            answers.append(item["a"])
+            documents.append(item.get("d", []))
+        return Dataset.from_dict({"q": questions, "a": answers, "d": documents})
+
     def train_generator(self) -> None:
-        assert self.generator, "Create generator before running train_generator()"
+        if not self.output_model_dir:
+            raise ValueError("Output directory not set")
+        if not self.training_qa_file_name:
+            raise ValueError("Training QA dataset file not set")
+        if not self.generator:
+            self.create_generator()
+        assert self.generator
+
+        collator = DataCollatorForSeq2Seq(
+            tokenizer=self.generator.tokenizer, model=self.model_dir
+        )
+        training_data = self._read_qa_data(self.training_qa_file_name)
+        tokenized_data = training_data.map(lam)
+        print(training_data)
+
+        training_args = Seq2SeqTrainingArguments(
+            self.output_model_dir, **self.generator_train_args
+        )
+
+        trainer = Seq2SeqTrainer(
+            model=self.generator.model,
+            args=training_args,
+            train_dataset=tokenized_dataset["train"],
+            eval_dataset=tokenized_dataset["valid"],
+            tokenizer=self.generator.tokenizer,
+            data_collator=data_collator,
+        )
         raise NotImplementedError
         # self.generator.train(**self.generator_train_args)
 

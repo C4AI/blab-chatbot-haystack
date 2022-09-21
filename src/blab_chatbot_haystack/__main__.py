@@ -22,6 +22,7 @@ def create_arg_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("startserver", help="start server")
     subparsers.add_parser("index", help="index documents")
     subparsers.add_parser("answer", help="answer question typed on terminal")
+    subparsers.add_parser("train", help="train the model")
     return parser
 
 
@@ -65,5 +66,8 @@ elif args.command == "answer":
                 + a.answer
             )
 
+
+elif args.command == "train":
+    bot.train_generator()
 elif args.command == "startserver":
     start_server(bot=bot, **{k.lower(): v for k, v in server_config.items()})
