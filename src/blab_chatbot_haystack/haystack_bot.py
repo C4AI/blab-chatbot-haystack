@@ -48,6 +48,32 @@ class CustomInputConverter:  # adapted from _BartEli5Converter
         return enc
 
 
+def custom_preprocess_function(
+    tokenizer: PreTrainedTokenizer, max_input_length: int, max_answer_length: int
+):
+    def f(instances: dict[str, Any]) -> BatchEncoding:
+        inputs = list(
+            map(
+                lambda j: "question: "  # type: ignore
+                + instances["q"][j]
+                + "context: "
+                + (" <P> " if instances["d"] else "")
+                + " <P>".join(map(lambda d: d.document, instances["d"][j])),
+                range(len(instances["q"])),
+            )
+        )
+        model_inputs: BatchEncoding = tokenizer(
+            inputs, max_length=max_input_length, truncation=True
+        )
+        labels = tokenizer(
+            instances["a"], max_length=max_answer_length, truncation=True
+        )
+        model_inputs["labels"] = labels["input_ids"]
+        return model_inputs
+
+    return f
+
+
 class HaystackBot:
     """A bot that uses Haystack."""
 
@@ -63,6 +89,7 @@ class HaystackBot:
         generator_args: dict[str, Any] | None = None,
         generator_train_args: dict[str, Any] | None = None,
         training_qa_file_name: str | None = None,
+        evaluation_qa_file_name: str | None = None,
         pipeline_retriever_args: dict[str, Any] | None = None,
         pipeline_generator_args: dict[str, Any] | None = None,
     ):
@@ -91,6 +118,7 @@ class HaystackBot:
             generator_args: arguments to be passed to the generator constructor
             generator_train_args: # TODO
             training_qa_file_name: # TODO
+            evaluation_qa_file_name: # TODO
             pipeline_retriever_args: arguments to be passed to the retriever
                 in the pipeline (to request an answer)
             pipeline_generator_args: arguments to be passed to the generator
@@ -111,6 +139,11 @@ class HaystackBot:
         self.generator_train_args: dict[str, Any] = generator_train_args or {}
         self.training_qa_file_name: str | None = (
             make_path_absolute(training_qa_file_name) if training_qa_file_name else None
+        )
+        self.evaluation_qa_file_name: str | None = (
+            make_path_absolute(evaluation_qa_file_name)
+            if evaluation_qa_file_name
+            else None
         )
         self.pipeline_retriever_args: dict[str, Any] = pipeline_retriever_args or {}
         self.pipeline_generator_args: dict[str, Any] = pipeline_generator_args or {}
@@ -180,8 +213,15 @@ class HaystackBot:
             tokenizer=self.generator.tokenizer, model=self.model_dir
         )
         training_data = self._read_qa_data(self.training_qa_file_name)
-        tokenized_data = training_data.map(lam)
-        print(training_data)
+        evaluation_data = (
+            self._read_qa_data(self.evaluation_qa_file_name)
+            if self.evaluation_qa_file_name
+            else []
+        )
+        data = DatasetDict({"train": training_data, "eval": evaluation_data})
+        tokenized_data = training_data.map(
+            custom_preprocess_function(self.generator.tokenizer, 2048, 512), data
+        )
 
         training_args = Seq2SeqTrainingArguments(
             self.output_model_dir, **self.generator_train_args
@@ -190,13 +230,13 @@ class HaystackBot:
         trainer = Seq2SeqTrainer(
             model=self.generator.model,
             args=training_args,
-            train_dataset=tokenized_dataset["train"],
-            eval_dataset=tokenized_dataset["valid"],
+            train_dataset=tokenized_data["train"],
+            eval_dataset=tokenized_data["eval"],
             tokenizer=self.generator.tokenizer,
-            data_collator=data_collator,
+            data_collator=collator,
         )
-        raise NotImplementedError
-        # self.generator.train(**self.generator_train_args)
+        trainer.train(**self.generator_train_args)  # type: ignore
+        trainer.save_model()  # type: ignore
 
     def create_pipeline(self) -> None:
         if not self.generator:
