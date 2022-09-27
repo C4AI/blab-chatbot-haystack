@@ -4,10 +4,9 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, cast, List
+from typing import Any, Callable, List, cast
 
-from datasets import DatasetDict, Dataset
-
+from datasets import Dataset, DatasetDict
 from haystack.document_stores import ElasticsearchDocumentStore, KeywordDocumentStore
 from haystack.nodes import BaseRetriever, BM25Retriever, PreProcessor, Seq2SeqGenerator
 from haystack.pipelines import GenerativeQAPipeline
@@ -16,10 +15,10 @@ from haystack.schema import Answer, Document
 from haystack.utils import convert_files_to_docs
 from transformers import (
     BatchEncoding,
-    PreTrainedTokenizer,
-    Seq2SeqTrainingArguments,
-    Seq2SeqTrainer,
     DataCollatorForSeq2Seq,
+    PreTrainedTokenizer,
+    Seq2SeqTrainer,
+    Seq2SeqTrainingArguments,
 )
 
 from blab_chatbot_haystack import make_path_absolute
@@ -35,7 +34,7 @@ class CustomInputConverter:  # adapted from _BartEli5Converter
         self,
         tokenizer: PreTrainedTokenizer,
         query: str,
-        documents: List[Document],
+        documents: list[Document],
         top_k: int | None = None,
     ) -> BatchEncoding:
         conditioned_doc = "<P> " + " <P> ".join([d.content for d in documents])
@@ -51,7 +50,7 @@ class CustomInputConverter:  # adapted from _BartEli5Converter
 
 def custom_preprocess_function(
     tokenizer: PreTrainedTokenizer, max_input_length: int, max_answer_length: int
-):
+) -> Callable[[dict[str, Any]], BatchEncoding]:
     def f(instances: dict[str, Any]) -> BatchEncoding:
         inputs = list(
             map(
@@ -117,9 +116,11 @@ class HaystackBot:
                 constructor
             retriever_args: arguments to be passed to the retriever constructor
             generator_args: arguments to be passed to the generator constructor
-            generator_train_args: # TODO
-            training_qa_file_name: # TODO
-            evaluation_qa_file_name: # TODO
+            generator_train_args: arguments to be passed to the generator trainer
+            training_qa_file_name: JSON file with quesiton-answer pairs to train
+                the model
+            evaluation_qa_file_name: JSON file with quesiton-answer pairs to
+                evaluate the model
             pipeline_retriever_args: arguments to be passed to the retriever
                 in the pipeline (to request an answer)
             pipeline_generator_args: arguments to be passed to the generator
@@ -153,16 +154,42 @@ class HaystackBot:
         self.pipeline: Pipeline | None = None
 
     def connect_to_elastic_search(self) -> None:
+        """Create a connection to Elastic Search.
+
+        The arguments in the constructor's parameter "es_args" are used.
+        """
         self.doc_store = ElasticsearchDocumentStore(**self.es_args)
 
     def load_documents(self) -> None:
+        """Read documents to be indexed.
+
+        The documents are read from the directory given in the constructor's
+        parameter "doc_dir", and the arguments in the constructor's parameter
+        "conversion_args" are used.
+        """
         self.docs = convert_files_to_docs(self.doc_dir, **self.conversion_args)
 
     def pre_process(self) -> None:
+        """Pre-process documents that will be indexed.
+
+        The documents must have already been loaded.
+        The arguments in the constructor's parameter "pre_processor_args"
+        are used.
+        """
         pre_processor = PreProcessor(**self.pre_processor_args)
         self.docs = pre_processor.process(self.docs)
 
     def index_documents(self) -> None:
+        """Index documents using ElasticSearch.
+
+        If a connection to ElasticSearch has not been created yet, it is
+        created by this method.
+
+        Existing documents in the same index are deleted.
+
+        Documents are loaded, pre-processed and written to the
+        ElasticSearch document store.
+        """
         if not self.doc_store:
             self.connect_to_elastic_search()
         assert self.doc_store
@@ -175,6 +202,16 @@ class HaystackBot:
         self.doc_store.write_documents(self.docs)
 
     def create_retriever(self) -> None:
+        """Create a retriever.
+
+        If a connection to ElasticSearch has not been created yet, it is
+        created by this method.
+
+        The arguments in the constructor's parameter "retriever_args"
+        are used. Note that the ES document store is
+        filled automatically and should not be included
+        in "retriever_args".
+        """
         if not self.doc_store:
             self.connect_to_elastic_search()
         self.retriever = BM25Retriever(
@@ -182,6 +219,13 @@ class HaystackBot:
         )
 
     def create_generator(self) -> None:
+        """Create the generator.
+
+        The arguments in the constructor's parameter "generator_args"
+        are used. Note that the model directory and the input converter
+        are filled automatically and should not be included
+        in "generator_args".
+        """
         self.generator = Seq2SeqGenerator(
             **(
                 dict(
@@ -193,7 +237,7 @@ class HaystackBot:
         )
 
     def _read_qa_data(self, file_name: str) -> Dataset:
-        with open(file_name, "r", encoding="utf-8") as fd:
+        with open(file_name, encoding="utf-8") as fd:
             j = json.load(fd)
         questions: list[str] = []
         answers: list[str] = []
@@ -211,6 +255,22 @@ class HaystackBot:
         )
 
     def train_generator(self) -> None:
+        """Train the generator and save the resulting model.
+
+        The model is saved in the directory specified by the
+        constructor's parameter "output_model_dir". The directory
+        must exist.
+
+        Question-answer pairs with the respective lists of
+        supporting documents are read from the files specified
+        by the constructor's parameters "training_qa_file_name"
+        and "evaluation_qa_file_name".
+
+        The arguments in the constructor's parameter "generator_training_args"
+        are used. Note that the output model directory is
+        filled automatically and should not be included
+        in "generator_training_args".
+        """
         if not self.output_model_dir:
             raise ValueError("Output directory not set")
         if not Path(self.output_model_dir).is_dir():
@@ -225,11 +285,16 @@ class HaystackBot:
             tokenizer=self.generator.tokenizer, model=self.model_dir
         )
         training_data = self._read_qa_data(self.training_qa_file_name)
-        evaluation_data = (
-            self._read_qa_data(self.evaluation_qa_file_name)
-            if self.evaluation_qa_file_name
-            else []
-        )
+        if self.evaluation_qa_file_name:
+            evaluation_data = self._read_qa_data(self.evaluation_qa_file_name)
+        else:
+            evaluation_data = Dataset.from_dict(
+                {
+                    "questions": [],
+                    "answers": [],
+                    "supporting_documents": [],
+                }
+            )
         data = DatasetDict({"train": training_data, "eval": evaluation_data})
         tokenized_data = data.map(
             custom_preprocess_function(self.generator.tokenizer, 2048, 512),
@@ -252,6 +317,10 @@ class HaystackBot:
         trainer.save_model()  # type: ignore
 
     def create_pipeline(self) -> None:
+        """Create a Haystack pipeline.
+
+        The generator and the retriever are created if they have not been created yet.
+        """
         if not self.generator:
             self.create_generator()
         if not self.retriever:
@@ -259,6 +328,13 @@ class HaystackBot:
         self.pipeline = GenerativeQAPipeline(self.generator, self.retriever).pipeline
 
     def answer(self, query: str) -> list[Answer]:
+        """Generate answers to a query.
+
+        A Haystack pipeline is created if it has not been created yet.
+
+        The arguments in the constructor's parameters "pipeline_retriever_args"
+        and "pipeline_generator_args" are used.
+        """
         if not self.pipeline:
             self.create_pipeline()
         assert self.pipeline

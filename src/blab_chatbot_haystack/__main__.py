@@ -3,30 +3,30 @@
 from __future__ import annotations
 
 import argparse
-from colorama import Style
-from colorama import init as init_colorama
-
 from importlib import util as import_util
 from pathlib import Path
 from typing import Any
+
+from colorama import Style
+from colorama import init as init_colorama
 
 from blab_chatbot_haystack import make_path_absolute
 from blab_chatbot_haystack.haystack_bot import HaystackBot
 from blab_chatbot_haystack.server import start_server
 
 
-def create_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="settings.py")
-    subparsers = parser.add_subparsers(help="command", dest="command")
+def _create_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser()
+    p.add_argument("--config", default="settings.py")
+    subparsers = p.add_subparsers(help="command", dest="command")
     subparsers.add_parser("startserver", help="start server")
     subparsers.add_parser("index", help="index documents")
     subparsers.add_parser("answer", help="answer question typed on terminal")
     subparsers.add_parser("train", help="train the model")
-    return parser
+    return p
 
 
-def load_config(p: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def _load_config(p: str) -> tuple[dict[str, Any], dict[str, Any]]:
     cfg_path = make_path_absolute(p)
     spec = import_util.spec_from_file_location(Path(cfg_path).name[:-3], cfg_path)
     assert spec
@@ -40,9 +40,9 @@ def load_config(p: str) -> tuple[dict[str, Any], dict[str, Any]]:
     raise ValueError("Invalid settings file")
 
 
-parser = create_arg_parser()
+parser = _create_arg_parser()
 args = parser.parse_args()
-server_config, haystack_config = load_config(args.config)
+server_config, haystack_config = _load_config(args.config)
 
 bot = HaystackBot(**{k.lower(): v for k, v in haystack_config.items()})
 
@@ -62,7 +62,8 @@ elif args.command == "answer":
         for a in bot.answer(question) or []:
             print(
                 f"{Style.BRIGHT}\n>> HAYSTACK {Style.RESET_ALL}"
-                + f"{Style.DIM}(score={a.score}, context={a.context}){Style.BRIGHT}: {Style.RESET_ALL}"
+                + f"{Style.DIM}(score={a.score}, context={a.context})"
+                + "{Style.BRIGHT}: {Style.RESET_ALL}"
                 + a.answer
             )
 
