@@ -166,6 +166,9 @@ class HaystackBot:
         if not self.doc_store:
             self.connect_to_elastic_search()
         assert self.doc_store
+        existing = self.doc_store.get_document_count()
+        if existing:
+            self.doc_store.delete_documents()
         if not self.docs:
             self.load_documents()
             self.pre_process()
