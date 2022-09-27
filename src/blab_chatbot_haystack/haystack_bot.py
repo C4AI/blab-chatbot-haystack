@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any, cast, List
 
 from datasets import DatasetDict, Dataset
@@ -55,18 +56,18 @@ def custom_preprocess_function(
         inputs = list(
             map(
                 lambda j: "question: "  # type: ignore
-                + instances["q"][j]
+                + instances["questions"][j]
                 + "context: "
-                + (" <P> " if instances["d"] else "")
-                + " <P>".join(map(lambda d: d.document, instances["d"][j])),
-                range(len(instances["q"])),
+                + (" <P> " if instances["supporting_documents"][j] else "")
+                + " <P>".join(instances["supporting_documents"][j]),
+                range(len(instances["questions"])),
             )
         )
         model_inputs: BatchEncoding = tokenizer(
             inputs, max_length=max_input_length, truncation=True
         )
         labels = tokenizer(
-            instances["a"], max_length=max_answer_length, truncation=True
+            instances["answers"], max_length=max_answer_length, truncation=True
         )
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
@@ -198,11 +199,19 @@ class HaystackBot:
             questions.append(item["q"])
             answers.append(item["a"])
             documents.append(item.get("d", []))
-        return Dataset.from_dict({"q": questions, "a": answers, "d": documents})
+        return Dataset.from_dict(
+            {
+                "questions": questions,
+                "answers": answers,
+                "supporting_documents": documents,
+            }
+        )
 
     def train_generator(self) -> None:
         if not self.output_model_dir:
             raise ValueError("Output directory not set")
+        if not Path(self.output_model_dir).is_dir():
+            raise FileNotFoundError("Output directory does not exist")
         if not self.training_qa_file_name:
             raise ValueError("Training QA dataset file not set")
         if not self.generator:
@@ -219,8 +228,9 @@ class HaystackBot:
             else []
         )
         data = DatasetDict({"train": training_data, "eval": evaluation_data})
-        tokenized_data = training_data.map(
-            custom_preprocess_function(self.generator.tokenizer, 2048, 512), data
+        tokenized_data = data.map(
+            custom_preprocess_function(self.generator.tokenizer, 2048, 512),
+            batched=True,
         )
 
         training_args = Seq2SeqTrainingArguments(
@@ -235,7 +245,7 @@ class HaystackBot:
             tokenizer=self.generator.tokenizer,
             data_collator=collator,
         )
-        trainer.train(**self.generator_train_args)  # type: ignore
+        trainer.train()  # type: ignore
         trainer.save_model()  # type: ignore
 
     def create_pipeline(self) -> None:
