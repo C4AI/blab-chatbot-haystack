@@ -8,6 +8,7 @@ the project's root directory (which contains the README.md file).
 """
 
 from __future__ import annotations
+
 from typing import Any
 
 from haystack.utils import clean_wiki_text
