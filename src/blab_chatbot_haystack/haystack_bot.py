@@ -266,10 +266,10 @@ class HaystackBot:
         by the constructor's parameters "training_qa_file_name"
         and "evaluation_qa_file_name".
 
-        The arguments in the constructor's parameter "generator_training_args"
+        The arguments in the constructor's parameter "generator_train_args"
         are used. Note that the output model directory is
         filled automatically and should not be included
-        in "generator_training_args".
+        in "generator_train_args".
         """
         if not self.output_model_dir:
             raise ValueError("Output directory not set")
