@@ -3,6 +3,7 @@
 import json
 import uuid
 from threading import Thread
+from typing import Any, Callable, Dict, List
 
 from flask import Flask, request
 from websocket import WebSocketApp
@@ -45,24 +46,32 @@ def conversation_start() -> None:
             # ignore system messages and our own messages
             if not message.get("sent_by_human", False):
                 return
-            # generate answers
-            if not message.get("type", None) == MessageType.TEXT:
-                answers = ["O Haystack entende apenas mensagens de texto."]
-            else:
-                answers = list(
-                    map(lambda a: a.answer, bot.answer(message["text"]) or [])
-                )
-            for i, answer in enumerate(answers):
-                msg_type = "T"
-                local_id = str(uuid.uuid4()).replace("-", "")
-                ans = {
-                    "type": msg_type,
-                    "text": answer,
-                    "local_id": local_id,
-                    "quoted_message_id": message["id"] if i == 0 else None,
-                }
-                # send answer
-                Thread(target=lambda: ws_app.send(json.dumps(ans))).start()
+
+            def _generate_answers(
+                msg: Dict[str, Any], send_fn: Callable[[List[str]], None]
+            ) -> None:
+                if not message.get("type", None) == MessageType.TEXT:
+                    answers = ["O Haystack entende apenas mensagens de texto."]
+                else:
+                    answers = list(
+                        map(lambda a: a.answer, bot.answer(message["text"]) or [])
+                    )
+                send_fn(answers)
+
+            def _send_answers(answers: List[str]) -> None:
+                for i, answer in enumerate(answers):
+                    msg_type = "T"
+                    local_id = str(uuid.uuid4()).replace("-", "")
+                    ans = {
+                        "type": msg_type,
+                        "text": answer,
+                        "local_id": local_id,
+                        "quoted_message_id": message["id"] if i == 0 else None,
+                    }
+                    # send answer
+                    Thread(target=lambda: ws_app.send(json.dumps(ans))).start()
+
+            Thread(target=lambda: _generate_answers(message, _send_answers)).start()
 
     def on_open(ws_app: WebSocketApp) -> None:
         """Send a greeting message.
@@ -81,8 +90,12 @@ def conversation_start() -> None:
             "text": text,
             "local_id": local_id,
         }
+
         # send greeting message
-        ws_app.send(json.dumps(greeting))
+        def _answer_fn() -> None:
+            ws_app.send(json.dumps(greeting))
+
+        Thread(target=_answer_fn).start()
 
     ws_url = ws_url + "/ws/chat/" + request.json["conversation_id"] + "/"
     ws = WebSocketApp(
@@ -110,4 +123,6 @@ def start_server(host: str, port: int, bot: HaystackBot, ws_url: str) -> None:
     """
     app._BOT = bot
     app._WS_URL = ws_url
-    app.run(host=host, port=port)
+    from waitress import serve
+
+    serve(app, host=host, port=port)
