@@ -63,7 +63,7 @@ elif args.command == "answer":
             print(
                 f"{Style.BRIGHT}\n>> HAYSTACK {Style.RESET_ALL}"
                 + f"{Style.DIM}(score={a.score}, context={a.context})"
-                + "{Style.BRIGHT}: {Style.RESET_ALL}"
+                + f"{Style.BRIGHT}: {Style.RESET_ALL}"
                 + a.answer
             )
 
