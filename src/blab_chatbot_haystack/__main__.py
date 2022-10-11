@@ -40,6 +40,15 @@ def _load_config(p: str) -> tuple[dict[str, Any], dict[str, Any]]:
     raise ValueError("Invalid settings file")
 
 
+def _is_interactive() -> bool:
+    from os import fstat
+    from sys import stdin
+    from stat import S_ISFIFO, S_ISREG
+
+    mode = fstat(stdin.fileno()).st_mode
+    return not (S_ISFIFO(mode) or S_ISREG(mode))
+
+
 parser = _create_arg_parser()
 args = parser.parse_args()
 server_config, haystack_config = _load_config(args.config)
@@ -50,21 +59,24 @@ if args.command == "index":
     bot.index_documents()
 elif args.command == "answer":
     init_colorama()
-
-    print("TYPE YOUR QUESTION AND PRESS ENTER.")
+    interactive = _is_interactive()
+    if interactive:
+        print("TYPE YOUR QUESTION AND PRESS ENTER.")
+    you_prefix = f"{Style.BRIGHT}\n>> YOU: {Style.RESET_ALL}"
     while True:
         try:
-            question = input(f"{Style.BRIGHT}\n>> YOU: {Style.RESET_ALL}")
+            question = input(you_prefix if interactive else "")
+            if not interactive:
+                print(f"{you_prefix}{question}")
         except (EOFError, KeyboardInterrupt):
             question = ""
         if not question:
             break
         for a in bot.answer(question) or []:
             print(
-                f"{Style.BRIGHT}\n>> HAYSTACK {Style.RESET_ALL}"
+                f"{Style.RESET_ALL}{Style.BRIGHT}\n>> HAYSTACK {Style.RESET_ALL}"
                 + f"{Style.DIM}(score={a.score}, context={a.context})"
-                + f"{Style.BRIGHT}: {Style.RESET_ALL}"
-                + a.answer
+                + f"{Style.BRIGHT}: {Style.RESET_ALL}{a.answer}"
             )
 
 
