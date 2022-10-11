@@ -34,7 +34,7 @@ def _load_config(p: str) -> tuple[dict[str, Any], dict[str, Any]]:
     settings_module = import_util.module_from_spec(spec)
     spec.loader.exec_module(settings_module)
     haystack_cfg = getattr(settings_module, "HAYSTACK_SETTINGS", None)
-    server_cfg = getattr(settings_module, "SERVER_SETTINGS", None)
+    server_cfg = getattr(settings_module, "SERVER_SETTINGS", {})
     if isinstance(haystack_cfg, dict) and isinstance(server_cfg, dict):
         return server_cfg, haystack_cfg
     raise ValueError("Invalid settings file")
