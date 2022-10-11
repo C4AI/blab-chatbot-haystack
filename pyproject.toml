@@ -7,7 +7,7 @@ readme = "README.md"
 #packages = [{include = "blab_chatbot_haystack"}]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.7"
 farm-haystack = "^1.8.0"
 Flask = "^2.2.2"
 colorama = "^0.4.5"
