@@ -1,8 +1,9 @@
 """Haystack bot for BLAB."""
 from __future__ import annotations
 
-import json
+import csv
 import logging
+from operator import attrgetter
 from pathlib import Path
 from typing import Any, Callable, List, cast
 
@@ -58,7 +59,7 @@ def custom_preprocess_function(
                 + instances["questions"][j]
                 + "context: "
                 + (" <P> " if instances["supporting_documents"][j] else "")
-                + " <P>".join(instances["supporting_documents"][j]),
+                + " <P> ".join(instances["supporting_documents"][j]),
                 range(len(instances["questions"])),
             )
         )
@@ -237,22 +238,26 @@ class HaystackBot:
         )
 
     def _read_qa_data(self, file_name: str) -> Dataset:
-        with open(file_name, encoding="utf-8") as fd:
-            j = json.load(fd)
         questions: list[str] = []
         answers: list[str] = []
-        documents: list[list[str]] = []
-        for item in j["items"]:
-            questions.append(item["q"])
-            answers.append(item["a"])
-            documents.append(item.get("d", []))
+        with open(file_name, encoding="utf-8") as fd:
+            for question, answer in csv.reader(fd):
+                questions.append(question)
+                answers.append(answer)
         return Dataset.from_dict(
             {
                 "questions": questions,
                 "answers": answers,
-                "supporting_documents": documents,
             }
         )
+
+    def _fill_qa_with_documents(self, qa: Dataset) -> Dataset:
+        assert "supporting_documents" not in qa.column_names
+
+        def qdocs(q: str) -> list[Document]:
+            return list(map(attrgetter("content"), self.retriever.retrieve(q)))
+
+        return qa.add_column("supporting_documents", list(map(qdocs, qa["questions"])))
 
     def train_generator(self) -> None:
         """Train the generator and save the resulting model.
@@ -270,6 +275,9 @@ class HaystackBot:
         are used. Note that the output model directory is
         filled automatically and should not be included
         in "generator_train_args".
+
+        The generator and retriever objects
+        are created by this method if they have not been created yet.
         """
         if not self.output_model_dir:
             raise ValueError("Output directory not set")
@@ -277,16 +285,23 @@ class HaystackBot:
             raise FileNotFoundError("Output directory does not exist")
         if not self.training_qa_file_name:
             raise ValueError("Training QA dataset file not set")
+        if not self.retriever:
+            self.create_retriever()
         if not self.generator:
             self.create_generator()
         assert self.generator
+        assert self.retriever
 
         collator = DataCollatorForSeq2Seq(
             tokenizer=self.generator.tokenizer, model=self.model_dir
         )
         training_data = self._read_qa_data(self.training_qa_file_name)
+
+        training_data = self._fill_qa_with_documents(training_data)
+
         if self.evaluation_qa_file_name:
             evaluation_data = self._read_qa_data(self.evaluation_qa_file_name)
+            evaluation_data = self._fill_qa_with_documents(evaluation_data)
         else:
             evaluation_data = Dataset.from_dict(
                 {

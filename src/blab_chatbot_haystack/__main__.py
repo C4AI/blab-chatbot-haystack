@@ -42,8 +42,8 @@ def _load_config(p: str) -> tuple[dict[str, Any], dict[str, Any]]:
 
 def _is_interactive() -> bool:
     from os import fstat
-    from sys import stdin
     from stat import S_ISFIFO, S_ISREG
+    from sys import stdin
 
     mode = fstat(stdin.fileno()).st_mode
     return not (S_ISFIFO(mode) or S_ISREG(mode))
